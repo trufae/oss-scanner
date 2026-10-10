@@ -1,0 +1,33 @@
+name: Validate radare2 Docker enrollment
+on:
+  push:
+    branches: [validate-radare2-docker]
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check configuration
+        run: |
+          python3 -m venv /tmp/scanner-check
+          /tmp/scanner-check/bin/pip install PyYAML
+          /tmp/scanner-check/bin/python tools/validate.py
+          docker version
+      - name: Build the complete scanner environment
+        run: /tmp/scanner-check/bin/python tools/check --no-shell radare2
+      - name: Run binary format regressions offline
+        run: |
+          docker run --rm --init --network none --cap-add SYS_PTRACE \
+            --cpus 2 --memory 6g -w /src oss-scanner-check/built:radare2 \
+            bash -lc 'set -e; git rev-parse HEAD; r2 -v; r2r -C test db/formats/elf db/formats/mach0 db/formats/pe'
+      - name: Run unit tests offline
+        if: success() || failure()
+        run: |
+          docker run --rm --init --network none --cap-add SYS_PTRACE \
+            --cpus 2 --memory 6g -w /src oss-scanner-check/built:radare2 \
+            bash -lc 'make -C test unit-tests'
